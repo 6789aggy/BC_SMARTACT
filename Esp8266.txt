@@ -1,0 +1,171 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <SoftwareSerial.h>
+
+// =============================
+// WIFI CONFIG
+// =============================
+const char* ssid = "Mizuki";
+const char* password = "chanchan04";
+
+// =============================
+// FLASK SERVER
+// ð?i IP n?u máy ð?i IP
+// =============================
+const char* sensorURL  = "http://10.42.70.87:5000/sensor";
+const char* commandURL = "http://10.42.70.87:5000/command";
+
+// =============================
+// SERIAL TO UNO
+// ESP D5 = RX
+// ESP D6 = TX
+// =============================
+SoftwareSerial unoSerial(14, 12);
+
+// =============================
+// GLOBAL
+// =============================
+String lastCommand = "";
+unsigned long lastCommandCheck = 0;
+
+// =============================
+// WIFI CONNECT
+// =============================
+void connectWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting WiFi");
+
+  int retry = 0;
+
+  while (WiFi.status() != WL_CONNECTED && retry < 30) {
+    delay(500);
+    Serial.print(".");
+    retry++;
+  }
+
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi CONNECTED");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("WiFi FAILED");
+  }
+}
+
+// =============================
+// SEND SENSOR TO FLASK
+// =============================
+void sendSensor(String data) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClient client;
+  HTTPClient http;
+
+  http.begin(client, sensorURL);
+  http.addHeader("Content-Type", "text/plain");
+
+  int code = http.POST(data);
+
+  Serial.print("POST CODE: ");
+  Serial.println(code);
+
+  if (code > 0) {
+    String response = http.getString();
+
+    Serial.print("POST RESPONSE: ");
+    Serial.println(response);
+  }
+
+  http.end();
+}
+
+// =============================
+// CHECK COMMAND FROM FLASK
+// =============================
+void checkCommand() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClient client;
+  HTTPClient http;
+
+  http.begin(client, commandURL);
+
+  int code = http.GET();
+
+  if (code == 200) {
+    String cmd = http.getString();
+    cmd.trim();
+
+    if (cmd.length() == 0) {
+      http.end();
+      return;
+    }
+
+    Serial.print("SERVER CMD: ");
+    Serial.println(cmd);
+
+    if ((cmd == "PUMP_ON" || cmd == "PUMP_OFF") && cmd != lastCommand) {
+      unoSerial.println(cmd);
+
+      Serial.print("SEND TO UNO: ");
+      Serial.println(cmd);
+
+      lastCommand = cmd;
+    }
+
+    if (cmd == "PUMP_OFF") {
+      lastCommand = "";
+    }
+  }
+
+  http.end();
+}
+
+// =============================
+// SETUP
+// =============================
+void setup() {
+  Serial.begin(9600);
+  unoSerial.begin(9600);
+
+  delay(1000);
+
+  connectWiFi();
+
+  Serial.println("ESP READY");
+}
+
+// =============================
+// LOOP
+// =============================
+void loop() {
+
+  // reconnect wifi
+  if (WiFi.status() != WL_CONNECTED) {
+    connectWiFi();
+  }
+
+  // ð?c sensor t? UNO
+  if (unoSerial.available()) {
+String sensorData = unoSerial.readStringUntil('\n');
+    sensorData.trim();
+
+    if (sensorData.length() > 0) {
+      Serial.print("RX SENSOR: ");
+      Serial.println(sensorData);
+
+      sendSensor(sensorData);
+    }
+  }
+
+  // polling command nhanh
+  if (millis() - lastCommandCheck >= 300) {
+    checkCommand();
+    lastCommandCheck = millis();
+  }
+
+  delay(50);
+}

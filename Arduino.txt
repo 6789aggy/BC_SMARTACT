@@ -1,0 +1,155 @@
+#include <SoftwareSerial.h>
+
+// =============================
+// PIN CONFIG
+// =============================
+#define PH_PIN         A0
+#define TURBIDITY_PIN  A1
+#define WATER_PIN      A2
+#define FLOW_PIN       2
+#define RELAY_PIN      8
+
+// UNO RX=10, TX=11
+SoftwareSerial espSerial(10, 11);
+
+// =============================
+// GLOBAL
+// =============================
+volatile unsigned long flowPulse = 0;
+
+unsigned long lastSensorSend = 0;
+bool pumpState = false;
+
+// =============================
+// FLOW INTERRUPT
+// =============================
+void countFlow() {
+  flowPulse++;
+}
+
+// =============================
+// PUMP CONTROL
+// ACTIVE HIGH
+// =============================
+void pumpOn() {
+  digitalWrite(RELAY_PIN, HIGH);
+  pumpState = true;
+
+  Serial.println("PUMP ON");
+}
+
+void pumpOff() {
+  digitalWrite(RELAY_PIN, LOW);
+  pumpState = false;
+
+  Serial.println("PUMP OFF");
+}
+
+// =============================
+// HANDLE COMMAND
+// =============================
+void handleCommand(String cmd) {
+
+  cmd.trim();
+
+  if (cmd.length() == 0) return;
+
+  Serial.print("RX CMD: ");
+  Serial.println(cmd);
+
+  if (cmd == "PUMP_ON") {
+    pumpOn();
+  }
+  else if (cmd == "PUMP_OFF") {
+    pumpOff();
+  }
+}
+
+// =============================
+// FLOW RATE
+// =============================
+float getFlowRate() {
+
+  noInterrupts();
+  unsigned long pulseCopy = flowPulse;
+  flowPulse = 0;
+  interrupts();
+
+  return pulseCopy / 7.5;
+}
+
+// =============================
+// SEND SENSOR
+// =============================
+void sendSensorData() {
+
+  int phValue = analogRead(PH_PIN);
+  int turbValue = analogRead(TURBIDITY_PIN);
+  int levelValue = analogRead(WATER_PIN);
+
+  float flowRate = getFlowRate();
+
+  String data = "";
+
+  data += "PH:";
+  data += String(phValue);
+
+  data += ",TUR:";
+  data += String(turbValue);
+
+  data += ",LEVEL:";
+  data += String(levelValue);
+
+  data += ",FLOW:";
+  data += String(flowRate, 2);
+
+  data += ",PUMP:";
+  data += (pumpState ? "ON" : "OFF");
+
+  espSerial.println(data);
+
+  Serial.print("TX SENSOR: ");
+  Serial.println(data);
+}
+
+// =============================
+// SETUP
+// =============================
+void setup() {
+
+  Serial.begin(9600);
+  espSerial.begin(9600);
+
+  pinMode(RELAY_PIN, OUTPUT);
+
+  // ACTIVE HIGH
+  pumpOff();
+
+  pinMode(FLOW_PIN, INPUT_PULLUP);
+
+  attachInterrupt(
+    digitalPinToInterrupt(FLOW_PIN),
+    countFlow,
+    FALLING
+  );
+
+  delay(1000);
+
+  Serial.println("UNO READY");
+}
+
+// =============================
+// LOOP
+// =============================
+void loop() {
+
+  if (espSerial.available()) {
+    String cmd = espSerial.readStringUntil('\n');
+    handleCommand(cmd);
+  }
+
+  if (millis() - lastSensorSend >= 2000) {
+    sendSensorData();
+    lastSensorSend = millis();
+  }
+}

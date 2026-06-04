@@ -233,8 +233,8 @@ Theo dõi giao dịch đã được ghi thành công.
 ## Bước 1: Clone Repository
 
 ```bash
-git clone https://github.com/USERNAME/REPOSITORY.git
-cd REPOSITORY
+git clone https://github.com/6789aggy/BC_SMARTACT.git
+cd "vào thư mục vừa clone về"
 ```
 
 ---
